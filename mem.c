@@ -1,7 +1,7 @@
-/* mem.c A template
- * My Name is
- * My User ID is
- * My GitHub ID is
+/* mem.c
+ * Zade Hyatt
+ * zadeh
+ * zadehyatt
  * Lab4: Dynamic Memory Allocation
  * ECE 2230, Fall 2025
  */
@@ -54,6 +54,15 @@ mem_chunk_t *morecore(int new_bytes)
     // pages that have been requested
     NumSbrkCalls++; 
     NumPages += new_bytes/PAGESIZE;
+    
+    new_p->next = NULL;
+    new_p->num_units = new_bytes / sizeof(mem_chunk_t);
+    
+    // Add the new segment to the free list directly
+    // Insert after the dummy chunk 
+    new_p->next = Rover->next;
+    Rover->next = new_p;
+    
     return new_p;
 }
 
@@ -82,17 +91,58 @@ void Mem_free(void *return_ptr)
 {
     // precondition
     assert(Rover != NULL && Rover->next != NULL);
+    
 
-    // two cases: if coalescing or not
-    if (Coalescing == FALSE) {
-        // insert after rover
-    } else {
-        // step 1: loop to find before and after location
-        // step 2: insert between before and after and coalesce if possible
+    if (return_ptr == NULL) {
+        return;
     }
+    
 
-    // obviously the next line is WRONG!!!!  You must fix it.
-    free(return_ptr);
+    mem_chunk_t *p = (mem_chunk_t *)return_ptr - 1;
+    
+   
+    if (p == NULL) {
+        printf("Error: Invalid pointer in Mem_free\n");
+        return;
+    }
+    
+    if (Coalescing == FALSE) {
+        p->next = Rover->next;
+        Rover->next = p;
+        Rover = p;
+    } else {
+        // Coalescing is enabled
+        mem_chunk_t *dummy = Rover;
+        while (dummy->num_units != 0) {
+            dummy = dummy->next;
+        }
+        
+        // find correct position to insert
+        mem_chunk_t *current = dummy->next;
+        mem_chunk_t *prev = dummy;
+        
+        while (current != dummy && current < p) {
+            prev = current;
+            current = current->next;
+        }
+        
+        p->next = prev->next;
+        prev->next = p;
+        
+        if (prev != dummy && (char*)prev + prev->num_units * sizeof(mem_chunk_t) == (char*)p) {
+            prev->num_units += p->num_units;
+            prev->next = p->next;
+            p = prev;  
+        }
+        
+        if (p->next != dummy && (char*)p + p->num_units * sizeof(mem_chunk_t) == (char*)p->next) {
+            p->num_units += p->next->num_units;
+            p->next = p->next->next;
+        }
+        //update rover
+        
+        Rover = p;
+    }
 }
 
 /* returns a pointer to space for an object of size nbytes, or NULL if the
@@ -107,29 +157,86 @@ void *Mem_alloc(const int nbytes)
     assert(nbytes > 0);
     assert(Rover != NULL && Rover->next != NULL);
 
-    // Insert your code here to find memory block
-    // mem_chunk_t *p;
-
+    int nunits = (nbytes + sizeof(mem_chunk_t) - 1) / sizeof(mem_chunk_t) + 1;
+    
+    if (nunits <= 0) {
+        printf("Error: Invalid nunits in Mem_alloc: %d\n", nunits);
+        return NULL;
+    }
+    
+    mem_chunk_t *p, *prevp;
+    mem_chunk_t *best_fit = NULL;
+    mem_chunk_t *best_prev = NULL;
+    
+    prevp = Rover;
+    p = Rover->next;
+    
+    // Search for block that fits
+    do {
+        if (p->num_units >= nunits) {
+            if (SearchPolicy == FIRST_FIT) {
+                break;
+            } else if (SearchPolicy == BEST_FIT) {
+                if (best_fit == NULL || p->num_units < best_fit->num_units) {
+                    best_fit = p;
+                    best_prev = prevp;
+                }
+            }
+        }
+        prevp = p;
+        p = p->next;
+    } while (p != Rover);
+    
+    // If best fit was used, update pointers
+    if (SearchPolicy == BEST_FIT && best_fit != NULL) {
+        p = best_fit;
+        prevp = best_prev;
+    }
+    
+    if (p->num_units < nunits) {
+        int pages_needed = (nunits * sizeof(mem_chunk_t) + PAGESIZE - 1) / PAGESIZE;
+        int new_bytes = pages_needed * PAGESIZE;
+        
+        if (morecore(new_bytes) == NULL) {
+            return NULL;  
+        }
+        
+        prevp = Rover;
+        p = Rover->next;
+        
+        do {
+            if (p->num_units >= nunits) {
+                break;
+            }
+            prevp = p;
+            p = p->next;
+        } while (p != Rover);
+        
+        if (p->num_units < nunits) {
+            return NULL;
+        }
+    }
+    
+    // Found suitable block, check if split needed
+    if (p->num_units > nunits) {
+        mem_chunk_t *remaining = p + nunits;
+        remaining->num_units = p->num_units - nunits;
+        remaining->next = p->next;
+        p->num_units = nunits;
+        p->next = remaining;
+    }
+    
+    prevp->next = p->next;
+    p->next = NULL;
+    
+    Rover = prevp->next;
+    
     /**************** post-conditions   ************************************/
-    // Before returning, you must check the block with post-conditions.
-    //
-    // Here are possible post-conditions. 
-    // Include these tests before returning from this function.
-    //
-    // assume p is a pointer to the starting address of the memory block 
-    // to be given to the user. The address returned to the user is p+1.
-    //
     // Test that the memory block is just big enough.
-    // The minus one in the next two tests accounts for the header
-    //
-    // assert((p->num_units-1)*sizeof(mem_chunk_t) >= nbytes);
-    // assert((p->num_units-1)*sizeof(mem_chunk_t) < nbytes + sizeof(mem_chunk_t));
-    // assert(p->next == NULL);  // saftey first!
-    // return p+1;
-
-
-    // obviously the next line is WRONG!!!!  You must fix it.
-    return malloc(nbytes);
+    assert((p->num_units-1)*sizeof(mem_chunk_t) >= nbytes);
+    assert((p->num_units-1)*sizeof(mem_chunk_t) < nbytes + sizeof(mem_chunk_t));
+    assert(p->next == NULL);  // safety first!
+    return p+1;
 }
 
 /* prints stats about the current free list
@@ -149,8 +256,31 @@ void Mem_stats(void)
     double average_block_size = 0; // do not include dummy for avg/min/max
     int min_block_size = INT_MAX;
     int max_block_size = 0;
+    int non_dummy_count = 0;
 
-    printf("\n\tthe student must implement mem stats.  When done delete this line\n\n");
+    mem_chunk_t *p = Rover;
+    mem_chunk_t *start = p;
+    
+    do {
+        items_in_free_list++;
+        if (p->num_units > 0) {  
+            int block_bytes = p->num_units * sizeof(mem_chunk_t);
+            bytes_in_free_list += block_bytes;
+            non_dummy_count++;
+            
+            if (block_bytes < min_block_size) {
+                min_block_size = block_bytes;
+            }
+            if (block_bytes > max_block_size) {
+                max_block_size = block_bytes;
+            }
+        }
+        p = p->next;
+    } while (p != start);
+    
+    if (non_dummy_count > 0) {
+        average_block_size = (double)bytes_in_free_list / non_dummy_count;
+    }
 
     printf("  --- Free list stats ---\n");
     printf("\tCount of items : %d\n", items_in_free_list);
@@ -218,6 +348,10 @@ void mem_validate(void)
     assert(found_dummy == TRUE);
 
     if (Coalescing) {
+        p = Rover;
+        largest = NULL;
+        smallest = NULL;
+        wrapped = FALSE;
         do {
             if (p >= p->next) {
                 // this is not good unless at the one wrap around

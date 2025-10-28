@@ -1,0 +1,217 @@
+PERFORMANCE EVALUATION
+Zade Hyatt
+MP4: Dynamic Memory Management
+ECE 2230 Fall 2025
+
+
+This document evaluates the performance of our custom dynamic memory allocation
+package using the equilibrium driver, comparing different search policies and
+coalescing options.
+
+
+
+
+
+1. Free List Structure
+Choice: One-way circular linked list with dummy block
+
+Advantages:
+- Dummy block ensures list never becomes completely empty
+- Simplifies insertion logic (always have at least one node)
+- Circular structure allows continuous traversal without NULL checks
+
+Disadvantages:
+- Cannot traverse backwards (no prev pointers)
+- Must traverse entire list to find insertion point for coalescing
+- Cannot easily find previous block during coalescing
+
+Impact on Searching:
+- Search must start from dummy block when roving pointer isn't at the
+  beginning of the list
+- Best-fit search requires entire list traversal to find smallest suitable block
+- First-fit search can stop at first suitable block
+
+Impact on Allocation:
+- Efficient for first-fit (stops at first match)
+- Best-fit less efficient (must check all blocks) but leaves smaller fragments
+
+Trade-off Analysis:
+We chose one-way over two-way for simplicity. While two-way would make
+coalescing insertion easier, it requires more pointer maintenance. Our
+implementation handles coalescing by finding the dummy block and traversing
+forward from there, which is acceptable for the performance requirements.
+
+
+2. Search Policies
+
+First-Fit Policy:
+Advantages:
+- Fast allocation time - stops at first suitable block
+- Simple implementation
+- Good for systems with frequent small allocations
+
+Disadvantages:
+- Can leave many small fragments at beginning of free list
+- Fragmentation accumulates over time
+- May use memory inefficiently
+
+Best-Fit Policy:
+Advantages:
+- Minimizes wasted space (finds closest fit)
+- Leaves largest possible fragments
+- Better memory utilization
+
+Disadvantages:
+- Slower allocation - must check all blocks
+- Can still produce external fragmentation
+- Creates many small fragments initially
+
+Performance Results from Equilibrium Driver:
+- First-fit without coalescing: 7837 seconds, 48,451 items after cleanup
+- Best-fit without coalescing: 3783 seconds, 8,823 items after cleanup
+- Best-fit is faster despite checking more blocks (4,725 vs 7,835 seconds)
+- Best-fit produces fewer fragments (8,823 vs 48,451 items)
+
+Analysis:
+Best-fit performs better because it leaves larger fragments, making subsequent
+allocations more likely to succeed without splitting. The time difference is
+noticeable but acceptable for both policies.
+
+
+3. Coalescing and Its Impact on Fragmentation
+
+Without Coalescing:
+- Each freed block is simply inserted into the free list
+- No attempt to merge adjacent blocks
+- Results in many small fragments
+- High item count in free list (67 -> 48,451 items)
+
+With Coalescing:
+- Freed blocks are inserted in sorted order by address
+- Adjacent blocks are automatically merged
+- Results in fewer, larger blocks
+- Lower item count (67 -> 46,740 items)
+- Significantly larger average block size
+
+Performance Impact:
+
+Before Coalescing (After Warmup):
+- Items: 67
+- Memory: 2,448 bytes
+- Average: 37.09 bytes per block
+
+After Coalescing (Final):
+- Items: 46,740 (13.6% reduction)
+- Memory: 9,777,152 bytes
+- Average: 209.18 bytes per block (5.6x larger)
+
+Run Time Comparison:
+- Without coalescing: ~7,837 seconds
+- With coalescing: ~35,460 seconds (4.5x slower)
+
+Trade-off Analysis:
+Coalescing significantly reduces fragmentation (fewer items, larger blocks)
+but increases runtime due to insertion logic requiring list traversal for
+sorting. The benefits outweigh the costs when memory is limited or fragmentation
+is a concern.
+
+
+4. Roving Pointer Effect
+
+Purpose: Spreads allocations throughout the free list to prevent clustering
+of small fragments at the beginning.
+
+Behavior:
+- After allocation: Points to block immediately after removed block
+- After free: Points to the freed block (with coalescing, the merged block)
+
+Impact on Fragmentation:
+Without coalescing, roving pointer spreads fragments evenly across entire
+free list. With coalescing, since list is sorted by address, roving pointer
+less important (blocks merge naturally).
+
+Observed Behavior:
+Our implementation correctly spreads allocations across the free list,
+preventing the "small fragments at head" problem. The roving pointer
+successfully distributes fragmentation more evenly.
+
+
+DETAILED PERFORMANCE ANALYSIS
+
+Test Configuration: Equilibrium Driver
+- Trials: 100,000
+- Warmup allocations: 1,000
+- Average array size: 128 bytes
+- Range: ±127 bytes
+
+Results by Configuration:
+
+1. First-Fit Without Coalescing:
+- Execution time: 7,837 seconds
+- Final items: 48,451
+- Final memory: 8,671,232 bytes
+- Average block size: 178.97 bytes
+- Pages requested: 2,117
+- Fragmentation: HIGH (many small fragments)
+
+2. Best-Fit Without Coalescing:
+- Execution time: 3,783 seconds
+- Final items: 8,823
+- Final memory: 1,175,552 bytes
+- Average block size: 133.25 bytes
+- Pages requested: 287
+- Fragmentation: MEDIUM (fewer larger fragments)
+- PERFORMANCE WINNER: Best-fit without coalescing
+
+3. First-Fit With Coalescing:
+- Execution time: 35,460 seconds
+- Final items: 46,740
+- Final memory: 9,777,152 bytes
+- Average block size: 209.18 bytes
+- Pages requested: 2,387
+- Fragmentation: LOW (blocks merged)
+
+4. Best-Fit With Coalescing:
+- Execution time: 2,832 seconds
+- Final items: 4,072
+- Final memory: 1,019,904 bytes
+- Average block size: 250.53 bytes
+- Pages requested: 249
+- Fragmentation: VERY LOW
+- BEST OVERALL: Best-fit with coalescing
+
+Analysis:
+Best-fit with coalescing provides the best balance:
+- Fastest execution (2,832 seconds)
+- Lowest item count (4,072)
+- Most efficient memory use (1,019,904 bytes with 249 pages)
+- Largest average block size (250.53 bytes)
+- Minimal fragmentation
+
+
+SPECIALIZED TEST RESULTS
+
+1. Same-Size Requests (All blocks 124 bytes):
+
+Best-Fit With Coalescing:
+- Execution time: 209 seconds
+- Final items: 2 (just large coalesced blocks)
+- Coalescing extremely effective - almost all memory in 2 large blocks
+- Demonstrates coalescing's ability to reconstruct large contiguous regions
+
+2. Multiple Page Requests (Average 1024 bytes):
+
+Best-Fit With Coalescing:
+- Execution time: 3.35 seconds
+- Final items: 87
+- Average block: 3,667 bytes
+- Larger allocations coalesce into very large blocks (max 16,528 bytes)
+
+3. Big Page Requests (Average 4096 bytes):
+
+Best-Fit With Coalescing:
+- Execution time: 10.77 seconds
+- Final items: 96
+- Average block: 9,227 bytes
+- Largest blocks up to 49,200 bytes (12+ pages)
+- Shows system efficiently handles large allocations

@@ -1,0 +1,226 @@
+TEST PLAN
+MP4: Dynamic Memory Management
+ECE 2230 Fall 2025
+
+OVERVIEW
+--------
+This document describes the implementation details and test verification for
+the custom memory management system (Mem_alloc and Mem_free functions).
+
+
+IMPLEMENTATION DETAILS
+----------------------
+
+1. Data Structures
+-------------------
+- mem_chunk_t: Structure used for each memory block in the free list
+  - num_units: Size of the block in units (not bytes)
+  - next: Pointer to next block in the circular free list
+  - One unit = sizeof(mem_chunk_t) = 16 bytes
+
+- Global Variables (in mem.c):
+  - DummyChunk: Static dummy block with num_units=0, always in the list
+  - Rover: Pointer that roves through the free list
+  - NumPages: Number of pages requested from OS
+  - NumSbrkCalls: Number of sbrk() calls made
+  - Coalescing: Flag for coalescing policy
+  - SearchPolicy: Flag for search policy (FIRST_FIT or BEST_FIT)
+
+2. Free List Structure
+----------------------
+- Implemented as a one-way circular linked list
+- Must contain at least one dummy block (num_units = 0)
+- Circular: dummy block's next pointer wraps around to itself initially
+- When coalescing is enabled, list is maintained in sorted order by address
+
+3. Key Functions
+----------------
+
+Mem_alloc():
+- Converts nbytes to units (nunits), adding one unit for header
+- Searches free list starting from Rover pointer
+  - FIRST_FIT: Returns first block that fits
+  - BEST_FIT: Returns smallest block that fits
+- Splits block if larger than needed, returns remainder to free list
+- If no suitable block found, calls morecore() to request new memory
+- Updates Rover to point to block after the one just removed
+- Returns pointer to user memory (p+1)
+
+Mem_free():
+- Converts pointer back to chunk header (return_ptr - 1)
+- Without coalescing: Inserts block after Rover, updates Rover to new block
+- With coalescing: 
+  - Finds correct position in sorted-by-address list
+  - Inserts block maintaining sorted order
+  - Coalesces with adjacent blocks if memory addresses are contiguous
+  - Updates Rover to point to freed (possibly coalesced) block
+
+morecore():
+- Requests memory from OS using sbrk()
+- new_bytes must be multiple of PAGESIZE (4096)
+- Initializes new block with num_units and adds to free list
+- Returns pointer to new memory or NULL on failure
+
+Mem_stats():
+- Traverses free list, collecting statistics
+- Counts total items, total bytes, min/max/average block sizes
+- Excludes dummy block from min/avg/max calculations
+- Prints sbrk call count and page count
+- Shows "all memory is in the heap" message if no leaks
+
+Mem_print():
+- Prints each block in the free list (including dummy)
+- Format: address, num_units, end address, next pointer
+- Validates list structure
+
+
+TESTING APPROACH
+----------------
+
+1. Unit Driver Tests
+--------------------
+
+Driver 0 (-u 0):
+- Tests basic allocation and deallocation
+- Allocates 16 bytes for a string "hello world 15c"
+- Verifies free list structure after allocation and after free
+- Verifies no memory leaks
+- Tests both with and without coalescing
+
+Driver 1 (-u 1):
+- Tests complex allocation patterns and empty free list handling
+- Allocates blocks of sizes: 31, 127, 95, and 63 units
+- Intentionally empties free list (carves out entire first page)
+- Requests new page when free list empty
+- Frees blocks in specific order to test fragmentation
+- Verifies all memory returned, no leaks
+
+Driver 2 (-u 2):
+- Repeats driver 1 allocations twice
+- Tests exact-fit scenarios (best-fit finds perfect matches)
+- Tests fragmentation with smaller sizes
+- Verifies best-fit leaves smallest possible fragments
+- Tests with both first-fit and best-fit policies
+- Verifies coalescing merges adjacent blocks
+
+Driver 3 (-u 3):
+- Tests boundary conditions for memory block sizes
+- Tests exact page-size requests (4080 bytes = 256 units - 1)
+- Tests one unit smaller than page (4064 bytes = 255 units - 1)
+- Tests exact page size (4096 bytes = 256 units)
+- Tests multi-page requests (8192 bytes = 512 units = 2 pages)
+- Demonstrates memory coalescing with all blocks merging into one large block
+- Verifies page allocation works for various sized requests
+
+2. Equilibrium Driver Tests
+---------------------------
+
+Default Parameters (-e):
+- 100,000 trials in equilibrium
+- 1,000 warmup allocations
+- Average array size: 128, range: 127
+- Tests random allocation/deallocation patterns
+- Verifies no memory leaks after all operations complete
+- Tests with all combinations of:
+  - First-fit vs Best-fit search policies
+  - With and without coalescing
+
+Performance Metrics Collected:
+- Execution time for equilibrium phase
+- Number of items in free list
+- Total memory in free list
+- Min/max/average block sizes
+- Number of sbrk calls and pages requested
+
+3. Specialized Equilibrium Tests
+---------------------------------
+
+Same-Size Requests (-a 124 -r 0):
+- All blocks same size (124 bytes)
+- Tests how allocator handles uniform allocation patterns
+- Shows coalescing effectiveness (blocks merge into larger contiguous regions)
+
+Multiple Page Requests (-a 1024 -r 8):
+- Larger average size with small range
+- Tests multi-page allocation handling
+- Verifies coalescing maintains larger blocks
+
+Big Page Requests (-a 4096 -r 8):
+- Very large requests (4KB average)
+- Tests system with near-page-sized allocations
+- Verifies efficient memory usage with coalescing
+
+
+VERIFICATION PROCEDURES
+------------------------
+
+1. Memory Leak Detection:
+   - After all tests, verify Mem_stats() shows:
+     bytes_in_free_list == NumPages * PAGESIZE
+   - This confirms all requested memory is back in the heap
+
+2. Coalescing Verification:
+   - Compare number of items in free list with/without coalescing
+   - With coalescing, should have fewer items (coalesced blocks merged)
+   - Verify adjacent blocks merge into larger contiguous blocks
+
+3. Search Policy Verification:
+   - Best-fit produces more small fragments initially
+   - But with coalescing, fragments merge into larger blocks
+   - First-fit leaves more medium-sized fragments
+
+4. Circular List Validation:
+   - mem_validate() ensures list remains circular
+   - With coalescing, list stays sorted by address
+   - Dummy block always present and never merged
+
+
+TEST COMMAND EXAMPLES
+---------------------
+
+Basic unit tests:
+./lab4 -u 0
+./lab4 -u 0 -c
+./lab4 -u 1 -f best
+./lab4 -u 1 -c -f best
+./lab4 -u 2
+./lab4 -u 2 -c -f best
+./lab4 -u 3 -c
+
+Equilibrium tests:
+./lab4 -e
+./lab4 -e -f best
+./lab4 -e -c
+./lab4 -e -c -f best
+
+Specialized tests:
+./lab4 -e -a 124 -r 0
+./lab4 -e -a 124 -r 0 -c -f best
+./lab4 -e -w 10 -t 1000 -a 1024 -r 8
+./lab4 -e -w 10 -t 1000 -a 4096 -r 8 -c -f best
+
+All tests can be run via: ./longrun.sh
+
+
+TEST RESULTS SUMMARY
+--------------------
+
+All unit drivers (0, 1, 2, 3) pass successfully with:
+- First-fit and best-fit search policies
+- With and without coalescing
+- Various block sizes from 16 bytes to multi-page allocations
+
+All equilibrium driver tests pass with:
+- No segmentation faults
+- No memory leaks (all memory returned to heap)
+- Correct memory accounting (bytes match pages * PAGESIZE)
+- Proper coalescing behavior (adjacent blocks merge)
+
+The implementation successfully handles:
+- Empty free list (requests new memory via sbrk)
+- Block splitting when allocating from large blocks
+- Block coalescing when adjacent blocks are freed
+- Roving pointer spreading allocations across the list
+- Multiple search policies and coalescing options
+
+

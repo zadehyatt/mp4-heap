@@ -1,4 +1,7 @@
 /* lab4.c
+ * Zade Hyatt
+ * zadeh
+ * zadehyatt
  * Lab4: Dynamic Memory Allocation
  * Version: 1
  * ECE 2230, Fall 2025
@@ -272,6 +275,62 @@ int main(int argc, char **argv)
         Mem_stats();
 
         printf("\n----- End unit test driver 2 -----\n");
+    }
+    else if (dprms.UnitDriver == 3)
+    {
+        printf("\n----- Begin unit driver 3 -----\n");
+        /* This driver tests special cases:
+         * - Request sizes that match whole page, one unit smaller, one unit larger
+         * - Request more bytes than one page
+         * - Show that rover spreads allocations
+         */
+        
+        int unit_size = sizeof(mem_chunk_t);
+        int units_in_first_page = PAGESIZE/unit_size;
+        assert((units_in_first_page) * unit_size == PAGESIZE);
+        
+        int *ptr1, *ptr2, *ptr3, *ptr4;
+        
+        // Test 1: Request exactly one page (minus header)
+        int size1 = (units_in_first_page - 1) * unit_size;
+        printf("Test 1: Request %d bytes (exactly one page minus header)\n", size1);
+        ptr1 = (int *) Mem_alloc(size1);
+        printf("Allocated %d bytes at %p\n", size1, ptr1);
+        Mem_print();
+        
+        // Test 2: Request one unit smaller than a page
+        int size2 = (units_in_first_page - 2) * unit_size;
+        printf("\nTest 2: Request %d bytes (one unit smaller than a page)\n", size2);
+        ptr2 = (int *) Mem_alloc(size2);
+        printf("Allocated %d bytes at %p\n", size2, ptr2);
+        Mem_print();
+        
+        // Test 3: Request one unit larger than a page
+        int size3 = units_in_first_page * unit_size;
+        printf("\nTest 3: Request %d bytes (exactly one page)\n", size3);
+        ptr3 = (int *) Mem_alloc(size3);
+        printf("Allocated %d bytes at %p\n", size3, ptr3);
+        Mem_print();
+        
+        // Test 4: Request more than one page
+        int size4 = 2 * PAGESIZE;
+        printf("\nTest 4: Request %d bytes (two pages)\n", size4);
+        ptr4 = (int *) Mem_alloc(size4);
+        printf("Allocated %d bytes at %p\n", size4, ptr4);
+        Mem_print();
+        
+        // Free all blocks
+        printf("\nFreeing all blocks...\n");
+        Mem_free(ptr1);
+        Mem_free(ptr2);
+        Mem_free(ptr3);
+        Mem_free(ptr4);
+        
+        printf("\nFinal free list:\n");
+        Mem_print();
+        Mem_stats();
+        
+        printf("\n----- End unit test driver 3 -----\n");
     }
 
 

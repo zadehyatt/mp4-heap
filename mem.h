@@ -45,9 +45,9 @@ void Mem_print(void);
 /* an example of a mem_chunk_t definition.  You can modify this to
  * match your design, but you must get instructor approval for any changes
  */
-typedef struct memory_chunk_tag {
+typedef struct mem_chunk_tag {
     int num_units;                  // one unit equals sizeof(mem_chunk_t)
-    struct memory_chunk_tag *next;   // next block in free list
+    struct mem_chunk_tag *next;   // next block in free list
 } mem_chunk_t;
 
 /* vi:set ts=8 sts=4 sw=4 et: */
